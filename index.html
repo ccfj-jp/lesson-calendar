@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>フランス語プライベートレッスン予約</title>
+
+  <!-- FullCalendar -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.10/locales/ja.global.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    header {
+      background: #2c3e7a;
+      color: white;
+      padding: 20px 30px;
+      text-align: center;
+    }
+    header h1 { font-size: 1.5rem; margin-bottom: 6px; }
+    header p  { font-size: 0.9rem; opacity: 0.85; }
+
+    /* 講師フィルター */
+    #filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 14px 20px;
+      background: white;
+      border-bottom: 1px solid #ddd;
+      align-items: center;
+    }
+    #filter-bar span { font-size: 0.85rem; color: #666; margin-right: 4px; }
+    .filter-btn {
+      padding: 5px 14px;
+      border-radius: 20px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: bold;
+      transition: opacity 0.2s;
+    }
+    .filter-btn.off { opacity: 0.3; }
+
+    #calendar-wrap {
+      max-width: 1100px;
+      margin: 20px auto;
+      padding: 0 16px 40px;
+    }
+
+    #calendar {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 16px;
+    }
+
+    /* イベント（予約可能枠）スタイル */
+    .fc-event {
+      cursor: pointer !important;
+      border: none !important;
+    }
+    .fc-event-title { font-size: 0.78rem; }
+
+    /* モーダル */
+    #modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    #modal-overlay.open { display: flex; }
+    #modal {
+      background: white;
+      border-radius: 12px;
+      padding: 28px 30px;
+      width: 90%;
+      max-width: 420px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+    }
+    #modal h2 { font-size: 1.1rem; margin-bottom: 16px; color: #2c3e7a; }
+    .modal-row { margin-bottom: 10px; font-size: 0.92rem; }
+    .modal-row span { font-weight: bold; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .btn-reserve {
+      flex: 1;
+      padding: 12px;
+      background: #2c3e7a;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-reserve:hover { background: #1a2d6a; }
+    .btn-cancel {
+      padding: 12px 18px;
+      background: #eee;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    #loading {
+      text-align: center;
+      padding: 40px;
+      color: #888;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🇫🇷 フランス語プライベートレッスン 予約カレンダー</h1>
+  <p>予約可能な時間帯をクリックして予約フォームへ進んでください</p>
+</header>
+
+<div id="filter-bar">
+  <span>講師で絞り込み：</span>
+  <button class="filter-btn" data-lecturer="all"
+    style="background:#555;color:white;border-color:#555;">すべて</button>
+</div>
+
+<div id="calendar-wrap">
+  <div id="loading">カレンダーを読み込み中...</div>
+  <div id="calendar" style="display:none;"></div>
+</div>
+
+<!-- 予約確認モーダル -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h2>このレッスンを予約しますか？</h2>
+    <div class="modal-row">講師：<span id="m-lecturer"></span></div>
+    <div class="modal-row">日付：<span id="m-date"></span></div>
+    <div class="modal-row">時間：<span id="m-time"></span></div>
+    <div class="modal-actions">
+      <button class="btn-reserve" id="btn-go">予約フォームへ進む</button>
+      <button class="btn-cancel" id="btn-close">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 設定（ここを編集してください） =====
+const CONFIG = {
+  kintone: {
+    domain:   'dj4b0bjck6k2.cybozu.com',
+    appId:    394,
+    apiToken: 'wiwSl4K8rLPE5KJeAdS8KbYuxNZ1t2gr0CFAcF3N',
+  },
+  formBridgeUrl: 'https://ccfj.form.kintoneapp.com/public/reserve',
+
+  // FormBridgeのフィールドコード（FormBridge側のフィールドコードに合わせてください）
+  formFields: {
+    lecturer:   'lecturer',    // 講師名フィールドのコード
+    date:       'date',        // 日付フィールドのコード
+    start_time: 'start_time',  // 開始時刻フィールドのコード
+    end_time:   'end_time',    // 終了時刻フィールドのコード
+  },
+
+  // 講師ごとの表示色（kintoneのドロップダウン選択肢の値に合わせてください）
+  lecturerColors: {
+    // 例:
+    // 'デュポン先生': '#e74c3c',
+    // 'マルタン先生': '#27ae60',
+    // 'ルフェーブル先生': '#e67e22',
+  },
+  defaultColors: ['#2980b9','#8e44ad','#16a085','#d35400','#c0392b','#2ecc71'],
+};
+// ==========================================
+
+// 講師→色のマッピング（動的に割り当て）
+const colorMap = {};
+let colorIndex = 0;
+
+function getLecturerColor(lecturer) {
+  if (CONFIG.lecturerColors[lecturer]) return CONFIG.lecturerColors[lecturer];
+  if (!colorMap[lecturer]) {
+    colorMap[lecturer] = CONFIG.defaultColors[colorIndex % CONFIG.defaultColors.length];
+    colorIndex++;
+  }
+  return colorMap[lecturer];
+}
+
+// kintone REST APIからレコード取得
+async function fetchKintoneRecords() {
+  // 今日以降のデータのみ取得（過去は表示しない）
+  const today = new Date().toISOString().slice(0, 10);
+  const query = encodeURIComponent(`date >= "${today}" order by date asc, start_time asc limit 500`);
+  const url = `https://${CONFIG.kintone.domain}/k/v1/records.json?app=${CONFIG.kintone.appId}&query=${query}`;
+
+  const res = await fetch(url, {
+    headers: { 'X-Cybozu-API-Token': CONFIG.kintone.apiToken }
+  });
+  if (!res.ok) throw new Error(`kintone API error: ${res.status}`);
+  const data = await res.json();
+  return data.records;
+}
+
+// kintoneレコード → FullCalendarイベント に変換
+function recordsToEvents(records) {
+  return records.map(r => {
+    const date       = r.date.value;           // "YYYY-MM-DD"
+    const startTime  = r.start_time.value;     // "HH:MM"
+    const endTime    = r.end_time.value;       // "HH:MM"
+    const lecturer   = r.lecturer.value;       // ドロップダウン値
+
+    const color = getLecturerColor(lecturer);
+
+    return {
+      title:           `${lecturer}`,
+      start:           `${date}T${startTime}`,
+      end:             `${date}T${endTime}`,
+      backgroundColor: color,
+      borderColor:     color,
+      extendedProps: { lecturer, date, startTime, endTime },
+    };
+  });
+}
+
+// フィルターボタンを生成
+function buildFilterButtons(lecturers) {
+  const bar = document.getElementById('filter-bar');
+  lecturers.forEach(name => {
+    const color = getLecturerColor(name);
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn';
+    btn.dataset.lecturer = name;
+    btn.textContent = name;
+    btn.style.background = color;
+    btn.style.color = 'white';
+    btn.style.borderColor = color;
+    btn.addEventListener('click', () => toggleFilter(name, btn));
+    bar.appendChild(btn);
+  });
+
+  //「すべて」ボタンのイベント
+  document.querySelector('[data-lecturer="all"]').addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('off'));
+    calendar.getEvents().forEach(e => e.setProp('display', 'auto'));
+  });
+}
+
+// 講師フィルター切り替え
+function toggleFilter(lecturer, btn) {
+  btn.classList.toggle('off');
+  const active = [...document.querySelectorAll('.filter-btn:not(.off)')]
+    .map(b => b.dataset.lecturer).filter(l => l !== 'all');
+  calendar.getEvents().forEach(e => {
+    const show = active.includes(e.extendedProps.lecturer);
+    e.setProp('display', show ? 'auto' : 'none');
+  });
+}
+
+// FormBridge URLを組み立ててリダイレクト
+function openFormBridge(props) {
+  const f = CONFIG.formFields;
+  const params = new URLSearchParams({
+    [f.lecturer]:   props.lecturer,
+    [f.date]:       props.date,
+    [f.start_time]: props.startTime,
+    [f.end_time]:   props.endTime,
+  });
+  window.open(`${CONFIG.formBridgeUrl}?${params.toString()}`, '_blank');
+}
+
+// モーダル制御
+let currentProps = null;
+
+function showModal(props) {
+  currentProps = props;
+  document.getElementById('m-lecturer').textContent = props.lecturer;
+  document.getElementById('m-date').textContent =
+    new Date(props.date).toLocaleDateString('ja-JP', { year:'numeric', month:'long', day:'numeric', weekday:'short' });
+  document.getElementById('m-time').textContent =
+    `${props.startTime} 〜 ${props.endTime}`;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+document.getElementById('btn-close').addEventListener('click', () => {
+  document.getElementById('modal-overlay').classList.remove('open');
+});
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay'))
+    document.getElementById('modal-overlay').classList.remove('open');
+});
+document.getElementById('btn-go').addEventListener('click', () => {
+  if (currentProps) openFormBridge(currentProps);
+});
+
+// FullCalendar 初期化（グローバル変数で参照できるようにする）
+let calendar;
+
+async function init() {
+  let records;
+  try {
+    records = await fetchKintoneRecords();
+  } catch (e) {
+    document.getElementById('loading').textContent =
+      'データの取得に失敗しました。APIトークンやCORS設定を確認してください。';
+    console.error(e);
+    return;
+  }
+
+  const events = recordsToEvents(records);
+
+  // 講師一覧を抽出してフィルターボタン生成
+  const lecturers = [...new Set(records.map(r => r.lecturer.value))].sort();
+  buildFilterButtons(lecturers);
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('calendar').style.display = 'block';
+
+  const calEl = document.getElementById('calendar');
+  calendar = new FullCalendar.Calendar(calEl, {
+    locale:          'ja',
+    initialView:     'timeGridWeek',
+    headerToolbar: {
+      left:   'prev,next today',
+      center: 'title',
+      right:  'dayGridMonth,timeGridWeek,timeGridDay',
+    },
+    slotMinTime:     '08:00:00',
+    slotMaxTime:     '22:00:00',
+    slotDuration:    '00:30:00',
+    allDaySlot:      false,
+    height:          'auto',
+    events:          events,
+    eventClick: info => {
+      showModal(info.event.extendedProps);
+    },
+    eventMouseEnter: info => {
+      info.el.style.opacity = '0.8';
+    },
+    eventMouseLeave: info => {
+      info.el.style.opacity = '1';
+    },
+    // イベントのツールチップ代わりのタイトル表示
+    eventDidMount: info => {
+      const p = info.event.extendedProps;
+      info.el.title = `${p.lecturer}\n${p.startTime}〜${p.endTime}\nクリックして予約`;
+    },
+  });
+
+  calendar.render();
+}
+
+init();
+</script>
+</body>
+</html>
