@@ -1,0 +1,30 @@
+name: Fetch kintone data
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch records from kintone
+        run: |
+          curl -s \
+            -H "X-Cybozu-API-Token: ${{ secrets.KINTONE_API_TOKEN }}" \
+            "https://dj4b0bjck6k2.cybozu.com/k/v1/records.json?app=394&query=date%20%3E%3D%20%22$(date +%Y-%m-%d)%22%20order%20by%20date%20asc%2C%20start_time%20asc%20limit%20500" \
+            > data.json
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git diff --cached --quiet || git commit -m "chore: update kintone data [skip ci]"
+          git push
