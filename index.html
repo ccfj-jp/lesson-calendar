@@ -193,12 +193,12 @@ function getLecturerColor(lecturer) {
 
 // data.json（GitHub Actionsが定期取得したkintoneデータ）を読み込む
 async function fetchKintoneRecords() {
-  const res = await fetch(CONFIG.dataUrl);
+  const res = await fetch(CONFIG.dataUrl + '?t=' + Date.now());
   if (!res.ok) throw new Error(`data.json の取得に失敗しました: ${res.status}`);
   const data = await res.json();
   // 今日以降のレコードのみ使用
   const today = new Date().toISOString().slice(0, 10);
-  return data.records.filter(r => r.date.value >= today);
+  return (data.records || []).filter(r => r.date && r.date.value >= today);
 }
 
 // kintoneレコード → FullCalendarイベント に変換
